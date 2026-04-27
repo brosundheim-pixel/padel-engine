@@ -1,0 +1,10 @@
+pandas>=2.0
+pydantic>=2.0
+pyyaml>=6.0
+requests>=2.31
+shapely>=2.0
+geopandas>=0.14
+fastapi>=0.100
+uvicorn>=0.23
+pytest>=7.4
+ruff>=0.1

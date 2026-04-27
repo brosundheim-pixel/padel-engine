@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Virtual envs
+venv/
+.venv/
+env/
+
+# Environment / secrets
+.env
+.env.local
+*.key
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Raw API responses (regeneratable)
+data/raw/
+
+# Outputs (regeneratable from scoring runs)
+data/outputs/*.csv
+data/outputs/*.json
+
+# Local notebooks scratch
+notebooks/scratch_*.ipynb
+.ipynb_checkpoints/

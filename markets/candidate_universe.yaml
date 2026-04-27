@@ -1,0 +1,43 @@
+# Sub-suburb candidates to score. Resolution: zip code or Census tract.
+
+version: 0
+
+metros:
+  dfw_ntrc_adjacent:
+    description: "DFW suburbs adjacent to NTRC Frisco"
+    candidates:
+      - { name: "Southlake", zip: "76092" }
+      - { name: "Westlake", zip: "76262" }
+      - { name: "Colleyville", zip: "76034" }
+      - { name: "Prosper", zip: "75078" }
+      - { name: "Highland Park", zip: "75205" }
+
+  nashville_sensa_adjacent:
+    description: "Nashville suburbs adjacent to Sensa Germantown"
+    candidates:
+      - { name: "Brentwood", zip: "37027" }
+      - { name: "Belle Meade", zip: "37205" }
+      - { name: "Franklin", zip: "37067" }
+      - { name: "Forest Hills", zip: "37215" }
+
+  atlanta_affluent:
+    description: "Atlanta affluent suburbs (no urban anchor yet)"
+    candidates:
+      - { name: "Milton", zip: "30004" }
+      - { name: "Johns Creek", zip: "30097" }
+      - { name: "Alpharetta", zip: "30022" }
+
+  chicago_north_shore:
+    description: "Chicago North Shore (no urban anchor yet)"
+    candidates:
+      - { name: "Winnetka", zip: "60093" }
+      - { name: "Glencoe", zip: "60022" }
+      - { name: "Lake Forest", zip: "60045" }
+      - { name: "Hinsdale", zip: "60521" }
+
+  houston_affluent:
+    description: "Houston affluent enclaves"
+    candidates:
+      - { name: "West University Place", zip: "77005" }
+      - { name: "Bellaire", zip: "77401" }
+      - { name: "Hunters Creek Village", zip: "77024" }

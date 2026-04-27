@@ -1,0 +1,13 @@
+# Classification thresholds. PLACEHOLDER values.
+# Derive from anchor calibration before relying on output.
+
+version: 0
+derived_from_anchors: false
+
+hard_gates:
+  population_15min_isochrone_min: 50000
+  median_home_value_min: 500000
+
+classification:
+  build_threshold: null
+  pass_threshold: null

@@ -1,0 +1,19 @@
+# Signal weights for composite demand score.
+# v0 hypotheses, NOT validated. Update METHODOLOGY before changing.
+
+version: 0
+last_calibrated: null
+
+signals:
+  tennis_club_density: 0.15
+  private_tennis_club_present: 0.12
+  boutique_fitness_density: 0.12
+  median_home_value: 0.12
+  drive_time_to_nearest_padel: 0.15
+  age_25_50_pct: 0.08
+  homeownership_rate: 0.05
+  golf_club_density: 0.05
+  population_15min_isochrone: 0.08
+  median_household_income: 0.04
+  youth_sports_density: 0.02
+  population_growth_rate: 0.02
