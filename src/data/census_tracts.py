@@ -1,4 +1,4 @@
-"""Census tract data for population-weighted ZCTA centroids.
+"""Census tract data for catchment aggregation + pop-weighted ZCTA centroids.
 
 Three primary data sources, each cached to disk on first fetch:
 
@@ -11,15 +11,25 @@ Three primary data sources, each cached to disk on first fetch:
    internal point, which IS the population-weighted centroid for the tract.
    Cached at data/raw/census/tract_gazetteer.txt
 
-3. ACS 2023 5-year B01003_001E (total population) per tract. Bulk-fetched
-   per (state, county) since the ACS API supports tract:* wildcards within
-   a county. Cached per-county at data/raw/census/tract_pop_{state}_{county}.json
+3. ACS 2023 5-year tract demographics. Bulk-fetched per (state, county)
+   in a single API call covering all 14 variables we need:
+     - B01003_001E (total population)
+     - B19013_001E (median household income)
+     - B25003_001E, B25003_002E (ownership rate numerator + denominator)
+     - B01001_011E..015E + B01001_035E..039E (10 fields, age 25-49 share)
+   Cached at data/raw/census/tract_demographics_{state}_{county}.json
+   with ratios precomputed.
+
+   Legacy: prior pipeline cached only B01003_001E at
+   data/raw/census/tract_pop_{state}_{county}.json. Those files are still
+   read as a fallback for tract_population() — see _legacy_pop_cache_path.
 
 Public API:
-    tracts_in_zcta(zcta)          -> list of tract GEOID strings
-    tract_centroid(tract_geoid)   -> (lat, lng) tuple
-    tract_population(tract_geoid) -> int  (caches via county bulk fetch)
-    pop_weighted_zcta_centroid(zcta) -> (lat, lng) tuple, or None on failure
+    tracts_in_zcta(zcta)              -> list of tract GEOID strings
+    tract_centroid(tract_geoid)       -> (lat, lng) tuple
+    tract_population(tract_geoid)     -> int (3-step fallback: new cache → old cache → fresh fetch)
+    tract_demographics(tract_geoid)   -> dict {population, income, ownership_rate, pct_age_25_49}
+    pop_weighted_zcta_centroid(zcta)  -> (lat, lng) tuple, or None on failure
 """
 
 from __future__ import annotations
@@ -30,7 +40,7 @@ import json
 import os
 import zipfile
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from dotenv import load_dotenv
@@ -52,10 +62,28 @@ GAZETTEER_PATH = RAW_DIR / "tract_gazetteer.txt"
 
 ACS_BASE = "https://api.census.gov/data/2023/acs/acs5"
 
+# Variables fetched per (state, county) bulk call. Order is significant only
+# for parsing; we look up by header index.
+ACS_VARIABLES = [
+    "B01003_001E",  # total population
+    "B19013_001E",  # median household income
+    "B25003_001E",  # total occupied housing units (ownership denominator)
+    "B25003_002E",  # owner-occupied units (ownership numerator)
+    # Male age 25-49: 25-29, 30-34, 35-39, 40-44, 45-49
+    "B01001_011E", "B01001_012E", "B01001_013E", "B01001_014E", "B01001_015E",
+    # Female age 25-49 (same five 5-year buckets)
+    "B01001_035E", "B01001_036E", "B01001_037E", "B01001_038E", "B01001_039E",
+]
+
+_AGE_25_49_VARS = [
+    "B01001_011E", "B01001_012E", "B01001_013E", "B01001_014E", "B01001_015E",
+    "B01001_035E", "B01001_036E", "B01001_037E", "B01001_038E", "B01001_039E",
+]
+
 
 _crosswalk_cache: Optional[Dict[str, List[str]]] = None
 _gazetteer_cache: Optional[Dict[str, Tuple[float, float]]] = None
-_pop_cache: Dict[Tuple[str, str], Dict[str, int]] = {}
+_demographics_cache: Dict[Tuple[str, str], Dict[str, Dict[str, Any]]] = {}
 
 
 def _ensure_dir() -> None:
@@ -84,7 +112,6 @@ def download_gazetteer() -> Path:
     resp = requests.get(GAZETTEER_URL, timeout=300)
     resp.raise_for_status()
     with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
-        # Filename inside zip should be 2023_Gaz_tracts_national.txt
         candidates = [n for n in zf.namelist() if n.endswith(".txt")]
         if not candidates:
             raise RuntimeError(f"No .txt file in gazetteer zip: {zf.namelist()}")
@@ -95,7 +122,6 @@ def download_gazetteer() -> Path:
 
 
 def _load_crosswalk() -> Dict[str, List[str]]:
-    """Parse crosswalk into {zcta -> [tract_geoid, ...]}, land-overlap rows only."""
     global _crosswalk_cache
     if _crosswalk_cache is not None:
         return _crosswalk_cache
@@ -120,7 +146,6 @@ def _load_crosswalk() -> Dict[str, List[str]]:
 
 
 def _load_gazetteer() -> Dict[str, Tuple[float, float]]:
-    """Parse tract gazetteer into {tract_geoid -> (lat, lng)}."""
     global _gazetteer_cache
     if _gazetteer_cache is not None:
         return _gazetteer_cache
@@ -145,20 +170,71 @@ def _load_gazetteer() -> Dict[str, Tuple[float, float]]:
     return mapping
 
 
-def _county_pop_cache_path(state: str, county: str) -> Path:
+def _county_demographics_cache_path(state: str, county: str) -> Path:
+    return RAW_DIR / f"tract_demographics_{state}_{county}.json"
+
+
+def _legacy_pop_cache_path(state: str, county: str) -> Path:
     return RAW_DIR / f"tract_pop_{state}_{county}.json"
 
 
-def _fetch_county_tract_populations(state: str, county: str) -> Dict[str, int]:
-    """Bulk-fetch ACS B01003_001E for all tracts in (state, county). Cached."""
+def _coerce_int(value: Any) -> Optional[int]:
+    """Census uses negative sentinels (-666666666 etc.) for missing — coerce to None."""
+    if value is None:
+        return None
+    try:
+        n = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    if n < 0:
+        return None
+    return n
+
+
+def _build_record(row_vals: Dict[str, Any]) -> Dict[str, Any]:
+    """Compute ratios from raw ACS values. Returns the cached record shape."""
+    pop = _coerce_int(row_vals.get("B01003_001E"))
+    income = _coerce_int(row_vals.get("B19013_001E"))
+    occ_total = _coerce_int(row_vals.get("B25003_001E"))
+    occ_owner = _coerce_int(row_vals.get("B25003_002E"))
+    age_counts = [_coerce_int(row_vals.get(v)) for v in _AGE_25_49_VARS]
+    age_total = sum(c for c in age_counts if c is not None) if any(c is not None for c in age_counts) else None
+
+    ownership_rate: Optional[float]
+    if occ_total and occ_owner is not None:
+        ownership_rate = round(occ_owner / occ_total, 4)
+    else:
+        ownership_rate = None
+
+    pct_age_25_49: Optional[float]
+    if pop and age_total is not None:
+        pct_age_25_49 = round(age_total / pop, 4)
+    else:
+        pct_age_25_49 = None
+
+    return {
+        "population": pop or 0,
+        "income": income,
+        "ownership_rate": ownership_rate,
+        "pct_age_25_49": pct_age_25_49,
+    }
+
+
+def _fetch_county_tract_demographics(state: str, county: str) -> Dict[str, Dict[str, Any]]:
+    """Bulk-fetch all 14 ACS variables for every tract in (state, county).
+
+    Three-step access pattern:
+      1. In-memory cache (this process)
+      2. On-disk cache at tract_demographics_{state}_{county}.json
+      3. Fresh ACS API call
+    """
     key = (state, county)
-    if key in _pop_cache:
-        return _pop_cache[key]
-    cache_path = _county_pop_cache_path(state, county)
+    if key in _demographics_cache:
+        return _demographics_cache[key]
+    cache_path = _county_demographics_cache_path(state, county)
     if cache_path.exists():
-        data = json.loads(cache_path.read_text())
-        _pop_cache[key] = {k: int(v) for k, v in data.items()}
-        return _pop_cache[key]
+        _demographics_cache[key] = json.loads(cache_path.read_text())
+        return _demographics_cache[key]
 
     load_dotenv(REPO_ROOT / ".env")
     api_key = os.getenv("CENSUS_API_KEY")
@@ -166,7 +242,7 @@ def _fetch_county_tract_populations(state: str, county: str) -> Dict[str, int]:
         raise RuntimeError("CENSUS_API_KEY missing from .env")
 
     params = {
-        "get": "B01003_001E",
+        "get": ",".join(ACS_VARIABLES),
         "for": "tract:*",
         "in": f"state:{state} county:{county}",
         "key": api_key,
@@ -175,22 +251,19 @@ def _fetch_county_tract_populations(state: str, county: str) -> Dict[str, int]:
     resp.raise_for_status()
     payload = resp.json()
     header, rows = payload[0], payload[1:]
-    pop_idx = header.index("B01003_001E")
     state_idx = header.index("state")
     county_idx = header.index("county")
     tract_idx = header.index("tract")
-    out: Dict[str, int] = {}
+
+    out: Dict[str, Dict[str, Any]] = {}
     for row in rows:
-        try:
-            pop = int(row[pop_idx])
-        except (TypeError, ValueError):
-            pop = 0
-        if pop < 0:
-            pop = 0
+        row_vals = {var: row[header.index(var)] for var in ACS_VARIABLES}
         geoid = f"{row[state_idx]}{row[county_idx]}{row[tract_idx]}"
-        out[geoid] = pop
+        out[geoid] = _build_record(row_vals)
+
+    _ensure_dir()
     cache_path.write_text(json.dumps(out, indent=2, sort_keys=True))
-    _pop_cache[key] = out
+    _demographics_cache[key] = out
     return out
 
 
@@ -204,14 +277,60 @@ def tract_centroid(tract_geoid: str) -> Optional[Tuple[float, float]]:
     return _load_gazetteer().get(tract_geoid)
 
 
-def tract_population(tract_geoid: str) -> Optional[int]:
-    """Total tract population from ACS 2023 5-year. Bulk-cached per county."""
+def tract_demographics(tract_geoid: str) -> Optional[Dict[str, Any]]:
+    """Full demographics for a tract: population, income, ownership_rate, pct_age_25_49.
+
+    Cached via _fetch_county_tract_demographics — fetches one bulk call per
+    (state, county) on first access, then in-memory + disk for the rest of
+    the project lifetime.
+    """
     if len(tract_geoid) != 11:
         return None
     state = tract_geoid[:2]
     county = tract_geoid[2:5]
-    county_pops = _fetch_county_tract_populations(state, county)
-    return county_pops.get(tract_geoid)
+    county_demo = _fetch_county_tract_demographics(state, county)
+    return county_demo.get(tract_geoid)
+
+
+def tract_population(tract_geoid: str) -> Optional[int]:
+    """Tract total population. Three-step fallback for resilience:
+
+      1. New demographics cache (preferred — has full record)
+      2. Legacy population-only cache (tract_pop_{state}_{county}.json)
+      3. Fresh demographics fetch via the new path
+
+    Step 2 lets prior runs' cache files keep being useful even before the
+    new demographics fetcher has touched a county.
+    """
+    if len(tract_geoid) != 11:
+        return None
+    state = tract_geoid[:2]
+    county = tract_geoid[2:5]
+    key = (state, county)
+
+    # Step 1 — check new demographics cache (memory or disk)
+    if key in _demographics_cache:
+        rec = _demographics_cache[key].get(tract_geoid)
+        return rec.get("population") if rec else None
+    new_path = _county_demographics_cache_path(state, county)
+    if new_path.exists():
+        _demographics_cache[key] = json.loads(new_path.read_text())
+        rec = _demographics_cache[key].get(tract_geoid)
+        return rec.get("population") if rec else None
+
+    # Step 2 — legacy population-only cache fallback (does NOT populate
+    # demographics cache; it's missing the other fields)
+    legacy_path = _legacy_pop_cache_path(state, county)
+    if legacy_path.exists():
+        legacy = json.loads(legacy_path.read_text())
+        val = legacy.get(tract_geoid)
+        if val is not None:
+            return int(val)
+
+    # Step 3 — fresh fetch via new path (populates demographics cache)
+    county_demo = _fetch_county_tract_demographics(state, county)
+    rec = county_demo.get(tract_geoid)
+    return rec.get("population") if rec else None
 
 
 def pop_weighted_zcta_centroid(zcta: str) -> Optional[Tuple[float, float]]:

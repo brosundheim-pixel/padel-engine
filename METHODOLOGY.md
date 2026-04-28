@@ -195,6 +195,25 @@ Larger uncaptured value = better supply position. Zero uncaptured = fully served
 
 What still needs to be built: (a) affluent-tract filter at the tract level (see next section), (b) polygon intersection logic via shapely, (c) a per-candidate competitor enumeration that pulls competitor isochrones from cache.
 
+### DFW padel ground truth (post-bleed-fix)
+
+Pre-bleed-fix Google Places data falsely included Atlanta and Houston padel facilities in DFW catchments because Text Search `locationBias` allowed Google to relax geographically when the local 15km circle had few real matches. (Note: Google Places API New `locationRestriction.circle` is not valid for Text Search — only Search Nearby. Text Search must stay on `locationBias.circle` and apply a client-side haversine cutoff.) After adding the post-fetch 15km haversine filter to Text Search, the corrected DFW supply count is:
+
+- **DFW padel within 15km of NTRC centroid: 1 facility** (NTRC itself). Pre-fix value was 4.
+
+This materially changes the Frisco-adjacent suburb supply gap. Earlier corrupted data suggested the Frisco market was already half-served by 4 surrounding padel facilities; the corrected data shows Frisco-adjacent suburbs north and east of NTRC have a substantially cleaner supply gap than that estimate implied.
+
+For comparison, post-fix padel-supply ground truth at other anchors:
+
+- **Cresskill NJ: 10 padel facilities within 15km** — NYC-suburbs metro has substantial padel buildout already; the BUILD anchor sits in a competitive market. Supply-overlap math at Cresskill candidates is load-bearing.
+- **Dedham MA: 7** — Boston-area padel growing fast.
+- **Alpharetta GA: 2** — Atlanta suburban supply still thin.
+- **Sensa Germantown: 3** — Nashville urban density.
+- **Miami Beach: 27**, **Brooklyn Heights: 31** — saturated urban (matches existing PASS labels).
+- **Winder GA: 0**, **Roanoke AL: 0** — sparse.
+
+These corrected numbers should drive supply-overlap modeling for Phase 1 candidates in each metro.
+
 ## Affluent-demand-only catchment (v0 canonical)
 
 **Decision:** demand-side catchment population is the sum of population from tracts that *independently* meet affluent criteria, NOT total tract-population sum.
@@ -226,6 +245,132 @@ For each candidate isochrone P_c:
 
 - Tract demographics at the same fields we currently fetch at zip level. Census ACS tract-level B19013_001E (income), B25003 (ownership), B01001 (age) — same SKU, just different geography. No new API integration; same `src/data/census.py` patterns.
 - Affluent-tract filter at the tract level: a new function `affluent_catchment_population(polygon, criteria)` in `src/geo/catchment_population.py` (extends existing `catchment_population`).
+
+### Empirical findings from anchor calibration
+
+Pipeline run on 2026-04-28 against all 11 anchors. Results validate the methodology decision and surface specific calibration anchors:
+
+- **Affluent filter does materially more discrimination work than total catchment alone.** Under a 100K hard gate, total catchment cleanly excludes 1 of 4 PASS anchors (Roanoke 29K). Under the same 100K gate on affluent catchment, 3 of 4 PASS anchors fail (Roanoke 0, Miami Beach 39K, Winder GA 59K). The affluent filter does ~3x the discrimination work the total filter did at the same threshold value.
+- **Sensa Germantown's 112K affluent catchment is tight margin against the 100K hard gate (12% headroom).** Reflects Germantown's gentrifying-urban character: ownership-rate gate alone fails most surrounding tracts (Germantown ZCTA-level ownership is 33%). Sensa's BUILD label depends on destination-pull demand (members shop into Germantown for the experience, partner stack with Industrious / 1 Hotel / Next Health) — that demand mechanism is NOT modeled by catchment math. Tightening the affluent hard gate above 112K would falsely fail Sensa; the destination-urban label is the methodology hedge for this.
+- **Brooklyn Heights's 341K affluent catchment exceeds 4 of 7 BUILD-class anchors** (Sensa 112K, Cresskill 201K, Alpharetta 299K, Dedham 303K). Demographics alone — even after the affluent filter — cannot exclude saturated urban markets. Supply-overlap methodology ("Supply-overlap-with-demand methodology" above) is necessary, not optional. The affluent filter is a NECESSARY but NOT SUFFICIENT methodology improvement.
+- **75034 NTRC has 711K affluent catchment — highest of any anchor**, confirming the position-in-metro effect persists at the affluent-denominator level too. NTRC 75034 sits more centrally in the DFW metro grid than 75033 (627K affluent) or 75035 (623K affluent), and its 15-min ring captures more affluent population because more affluent suburbs lie within its reach. Same operator-flagged effect as documented in "Position-in-metro effect on catchment" — affluent filter does not normalize it away.
+
+These findings DO NOT trigger threshold changes in this turn; they're calibration data feeding future scoring code design.
+
+### Empirical demand-density baselines (post-bleed-fix)
+
+Google Places fetch run on 2026-04-28 against all 11 anchors at 15km radius, post-locationBias-bleed-fix. Counts are post-proximity-dedupe (≤50m) and post-haversine-15km filter. These are the ground-truth raw signal counts; per-capita normalization (signal / affluent_catchment_pop) is the next step before composite scoring.
+
+| anchor type | example | tennis | boutique | golf | padel |
+|---|---|---|---|---|---|
+| Suburban affluent BUILD (DFW) | NTRC 75034/75035 | 35-36 | 65-68 | 23-24 | 1 |
+| Northeast suburban BUILD | Cresskill NJ, Dedham MA, Alpharetta GA | 40-45 | 49-90 | 30-34 | 2-10 |
+| Urban gentrifying BUILD | Sensa Germantown | 38 | 77 | 20 | 3 |
+| Saturated urban PASS | Brooklyn Heights, Miami Beach | 40-44 | 67-238 | 23-24 | 27-31 |
+| Unaffluent Sunbelt PASS | Winder GA | 11 | 4 | 8 | 0 |
+| Rural PASS | Roanoke AL | 0 | 0 | 0 | 0 |
+
+Methodology consequences:
+
+- **Pre-bleed-fix counts inflated boutique fitness density by 2-4x in suburban anchors** (NTRC 75034 reported 216 boutique pre-fix vs 68 post-fix; Sensa 182 vs 77). Earlier interpretations of "180-220 boutique looks reasonable" were overstated by Google's geographic relaxation.
+- **Pre-bleed-fix produced ∞x false positives in rural anchors** (Roanoke 381 boutique pre-fix; 0 post-fix). All 381 were Atlanta and Birmingham gyms relaxed in.
+- **Per-capita normalization is required before comparing across anchors with different catchment sizes.** NTRC zips have 627-711K affluent catchment vs Cresskill 201K — NTRC's larger denominator means per-capita boutique density (68 / 627K = 0.108 per 1K affluent) is comparable to or HIGHER than Cresskill's (49 / 201K = 0.244 per 1K affluent), even though Cresskill has fewer raw boutique places. Raw count comparisons across anchors are misleading.
+- **Brooklyn Heights's 238 boutique density is real**, not a bleed artifact (post-fix bleed audit = 0%). NYC has the highest per-area boutique density of any anchor metro. Combined with the 4.7M total / 341K affluent catchment, raw NYC boutique counts will dominate any unnormalized comparison — another reason per-capita is mandatory.
+- **Padel supply-side counts are now trustworthy.** DFW: 1 (NTRC self). Atlanta-suburban (Alpharetta): 2. Boston-suburban (Dedham): 7. NYC-suburban (Cresskill): 10. Urban Brooklyn: 31. Urban Miami Beach: 27. These feed supply-overlap math directly.
+
+## Calibration boundary: saturated markets
+
+The v0 supply-overlap math cannot distinguish two distinct market types that both produce capture_share near 1.0:
+
+- **Saturated and unattractive**: Brooklyn Heights NYC. Capture_share ~0.83. Many existing operators have served the affluent demand pool. A new entrant would compete head-to-head with established saturation. Correctly classified PASS by ground truth.
+- **Saturated but supports new entrants**: Cresskill NJ. Capture_share ~1.0 (8 surviving competitors after self-exclusion fully cover its 201K affluent catchment). But Padel United operates successfully there — proving the market sustains its operator. The capture_share doesn't tell us the existing competitors are at capacity (waitlists, court-time scarcity, member-cap closures), and v0 has no capacity data to disambiguate.
+
+Both formulations the engine considered (multiplicative, additive penalty) treat capture_share = 1.0 as zero opportunity. This contradicts Cresskill's BUILD ground truth.
+
+### Root cause
+
+Disambiguating "saturated and served-out" from "saturated but operators at capacity" requires capacity data the engine doesn't capture: waitlist mentions, court-time availability scraping, member-cap closures, social-media saturation signals. METHODOLOGY backlog item "Membership cap / waitlist signals" (v2) covers this; until built, the boundary stays ambiguous.
+
+### Phase 0 handling
+
+BUILD anchors with capture_share > 0.85 are excluded from BUILD floor derivation, alongside the existing exclusions (BUILD_DESTINATION_URBAN, BUILD_OUTDOOR_VARIANT). They're scored for visibility but don't gate the threshold.
+
+This is operator-set v0_provisional. Implemented as `SATURATED_CAPTURE_THRESHOLD = 0.85` in `src/scoring/classify.py`.
+
+### Engine reliability domain
+
+The v0 engine is **reliable** for unsaturated candidate suburbs (capture_share < 0.50). For those, the composite scoring math produces sensible BUILD/INVESTIGATE/PASS classifications.
+
+The engine is **unreliable** for already-saturated markets (capture_share > 0.85). Those should be flagged in output as "calibration boundary" — they should not drive operator capital decisions until v2 capacity-data signals exist.
+
+The engine is **partially reliable** in the 0.50-0.85 mid-band — composite reflects partial supply pressure but the multiplicative formulation still over-weights capture. Tunable from anchor calibration.
+
+### What this means for candidate scoring
+
+When a candidate's catchment shows capture_share > 0.85, surface that as the dominant signal in the output, NOT the composite score. The composite gets noisy near saturation; the capture_share itself is the operator-actionable number ("this market has X% of its affluent pool already inside competitor catchments").
+
+## Layered gating: candidate-site demographics AND catchment affluence
+
+**Decision:** the engine applies BOTH a candidate-site demographic gate AND a catchment-affluence gate. Either one alone is insufficient.
+
+### Empirical motivation: Winder GA
+
+The 2026-04-28 affluent-catchment run produced a counterintuitive Winder result: 33% affluent ratio, 59K affluent population in the 15-min ring. Winder's own zip (30680) fails the home-value gate ($245K, well below $500K floor) and is correctly labeled PASS. But its 15-min isochrone reaches into Buford, Suwanee, Lawrenceville, and Athens-adjacent affluent suburbs, pulling in ~59K affluent residents from those neighboring zips.
+
+Position-in-metro can geometrically lift an unaffluent candidate site if it sits between affluent pockets. A scoring math that relied on catchment-affluence alone would surface Winder as more attractive than its zip-level demographics warrant.
+
+### Why both gates are needed
+
+- **Candidate-site demographic gate.** Candidate zip itself must clear demographic floors: median income, median home value, ownership rate. Filters sites that are themselves unaffluent regardless of what their isochrone catches in neighboring areas. **Reason it matters:** an affluent customer living in a *neighboring* zip already has racket-sport options closer to themselves; they will not consistently drive to a site located in an unaffluent zip just because the math says they could in 15 minutes. Drive-time is a necessary condition, not a sufficient one. Members converge on facilities in their *own* perceived neighborhood, not on isochrone-reachable facilities in zips they'd otherwise avoid.
+- **Catchment-affluence gate.** Candidate's 15-min affluent catchment population must clear an absolute floor (currently 100K v0). Filters sites with insufficient addressable demand pool — even if the candidate zip itself is wealthy, an isolated affluent enclave with no nearby affluent population to draw on cannot scale to the 300-400 member target.
+
+### Failure modes each gate prevents
+
+| Gate | Prevents | Anchor example |
+|---|---|---|
+| Candidate-site only | Misses the "isolated affluent island" failure (e.g., a hypothetical small wealthy enclave with no affluent neighbors) | Theoretical — none of current 11 anchors hit this |
+| Catchment-affluence only | Misses the "geometrically attractive but locally unaffluent" failure | Winder GA 30680 (33% ratio, 59K affluent catchment, but zip itself $245K home value) |
+
+### Implementation note
+
+When scoring code lands, both gates are applied as hard filters BEFORE composite scoring. A candidate that fails either is excluded from BUILD/INVESTIGATE consideration, not just composite-downweighted. Composite scoring runs only on candidates that survive both.
+
+This is logically equivalent to: BUILD-eligible ⟺ (site_clears_demographic_floors) AND (catchment_affluence ≥ 100K) — both required.
+
+## Business climate tier (v0 categorical, not quantitative)
+
+**Decision:** the engine deliberately does NOT estimate construction costs, property taxes, or permitting timelines numerically. Instead, each candidate (and each anchor) is tagged with a categorical `business_climate_tier` drawn from a 4-tier framework. The tier signals an OUTPUT FLAG only — it never enters composite-score computation.
+
+### Why categorical, not quantitative
+
+Approximated unit-economics inputs would inject error bands large enough to undermine the engine's other outputs. Construction cost per sqft varies 3-4x across markets the engine considers; property tax effective rates vary by local assessment quirks that public data smooths over; permitting timelines depend on specific municipality + project type. A field that says "estimated $/sqft = $250" with a real range of $180-$400 is worse than no number at all — operator could anchor on it. Underwriting (specific site, real lease quotes, real construction bids from contractors who know the local market) is the right place for precise numbers. The engine's job is to surface candidates worth underwriting, not to do underwriting.
+
+Categorical tiers group markets by well-understood structural characteristics. They flag where unit economics likely thrive vs. where they likely struggle, without claiming false precision.
+
+### Four tiers
+
+- **TIER_1_FAVORABLE** — 0%-low income tax + low-moderate property tax + fast permitting + low construction cost. Strong unit economics. BUILD candidates score without caveat. Examples (state-level): TX, TN, FL, NV, WY, SD, AZ.
+- **TIER_2_NEUTRAL** — moderate tax + moderate permitting. No structural blocker, no advantage. BUILD candidates score without caveat. Examples: GA, NC, CO, OH, IL, IN, MO, MI, others (25 states total).
+- **TIER_3_PREMIUM** — high tax + slow permitting. Premium pricing power assumed compensates. BUILD candidates carry caveat: "BUILD with assumed pricing power" — premium pricing must hold for unit economics to work. Examples: NY (suburbs), CT, MA, NJ, MD, VA, PA, MN, OR, WA. **Sub-flag for states with effective property tax > 2%**: candidates from those states (currently NJ at 2.08% effective, the highest in the country) carry an additional flag — "TIER_3 with extreme property tax burden — premium pricing must hold AND property tax is highest tier in country." Other TIER_3 states carry baseline TIER_3 caveat only.
+- **TIER_4_PROHIBITIVE** — construction + permitting kill unit economics at the $1.2-2M capex target. BUILD candidates carry flag: "BUILD demographically, ECONOMIC_GATE_RISK for underwriting" — likely fail underwriting even when demographics qualify. Examples: CA (state default), DC (district), and metro overrides for NYC-proper, Seattle-proper.
+
+### Source of truth
+
+State defaults + metro overrides live in `markets/business_climate_tiers.yaml`. The file covers all 50 states + DC. Metro overrides (NYC-proper → TIER_4, Chicago-city → TIER_3, Seattle-proper → TIER_4, Austin-metro → TIER_2 step-down, Rural-VA-non-NOVA → TIER_2 step-down, Rural-PA-non-Philly → TIER_2 step-down) handle within-state heterogeneity.
+
+### How the tier signal flows through the engine
+
+1. Candidate definition in `candidate_universe.yaml` carries `business_climate_tier` field (resolved from state default + metro override at definition time).
+2. Scoring runner reads the tier as metadata — does NOT pass it into `composite_demand_score`, `supply_overlap_uncaptured_demand`, or any signal density. Tier never affects score values.
+3. Output (`candidate_scores.md`) prints tier alongside composite + classification, with the appropriate caveat flag attached based on tier value.
+
+### Refusal commitment
+
+If any future code path or schema change wants to add quantitative cost fields ($/sqft, $/year property tax, days-to-permit estimates) to anchors.csv, candidate_universe.yaml, or any signal-input pipeline — refuse. Surface to operator. The categorical tier is the v0 design; quantitative numbers belong in underwriting, not screening. See CLAUDE.md anti-pattern #17.
+
+### Validation status
+
+v0 tier assignments based on documented state-level tax + permitting + construction-cost characteristics. Some assignments are contested at the boundary (NH, VT, ME at TIER_3 instead of operator-example TIER_2; AZ at TIER_1 instead of TIER_2; MI at TIER_2 instead of operator-example TIER_3). Operator approved Claude Code's contested-case proposals. Refine as more market data accumulates.
 
 ## Methodology backlog — adjacent fixes prioritized as v1/v2
 
@@ -259,3 +404,8 @@ The two methodology decisions above (overlap-supply, affluent-only-demand) are v
 - Demand-cluster-overlap supply methodology adopted as v0 canonical (CLAUDE.md anti-pattern #13; METHODOLOGY "Supply-overlap-with-demand methodology"). Operator-driven decision: facility count is a coarse proxy that ignores who competitors actually serve. Empirical basis: NTRC adjacency where 5 facilities-within-15km would say "supply saturated" but the overlap math may show meaningful uncaptured affluent demand. Must be implemented from the first scoring run; facility-count is explicitly wrong.
 - Affluent-criteria-only demand catchment adopted as v0 canonical (CLAUDE.md anti-pattern #14; METHODOLOGY "Affluent-demand-only catchment"). Operator-driven decision: total catchment overstates addressable demand 10-50x in mixed-density urban-adjacent zips. Empirical basis: Brooklyn Heights's 4.7M total catchment vs NTRC 75033's 892K total catchment makes Brooklyn Heights look 5x stronger when in real-affluent terms it is likely smaller. Tract-level affluent filter (income ≥ $100K + age 25-49 ≥ 25% + ownership ≥ 50%) is the v0 starting criteria.
 - v1/v2 methodology backlog locked in (METHODOLOGY "Methodology backlog — adjacent fixes prioritized as v1/v2"): capacity-weighted supply + substitute-good supply build before first capital decision; distance-decay capture, waitlist signals, new-supply re-scrape, cross-metro spillover deferred to v2 post-operating data; time-of-day / per-competitor demographic-match flagged as probably-never. Documented now so v0 implementations don't accidentally close off space for these refinements.
+- Affluent-catchment empirical findings from 2026-04-28 anchor pipeline run added to METHODOLOGY "Affluent-demand-only catchment / Empirical findings". Key results: 100K affluent gate excludes 3 of 4 PASS anchors (vs 1 of 4 under 100K total); Sensa Germantown is tight-margin BUILD anchor at 112K affluent (12% above gate, destination-pull caveat); Brooklyn Heights 341K affluent exceeds 4 of 7 BUILD-class anchors confirming supply-overlap methodology is necessary not optional; 75034 NTRC retains highest catchment under affluent denominator (position-in-metro effect persists post-filter).
+- Layered-gating methodology adopted (METHODOLOGY "Layered gating: candidate-site demographics AND catchment affluence"; CLAUDE.md anti-pattern #15). Decision: BUILD eligibility requires BOTH (a) candidate-zip clears demographic floors AND (b) catchment-affluent population ≥ 100K. Empirical motivation: Winder GA's 59K affluent catchment from neighboring zips would lift an unaffluent candidate site under catchment-only scoring; the candidate-zip filter prevents that failure mode. Either gate alone is insufficient.
+- Google Places `locationBias` bleed fix corrected demand-signal counts. Pre-fix data overstated boutique fitness density by 2-4x in suburban anchors and produced false positives in rural anchors (Roanoke AL: 381 boutique → 0 after fix; all 381 were Atlanta/Birmingham facilities Google relaxed in when the local 15km circle was empty). Note: Google Places API New `locationRestriction.circle` is not valid for Text Search — only Search Nearby supports it. Fix is `locationBias.circle` + post-fetch client-side haversine 15km filter. All 10 non-75033 anchor caches refreshed. Empirical density baselines (METHODOLOGY "Empirical demand-density baselines") and DFW supply ground truth (1 padel facility, not 4) updated accordingly.
+- Calibration boundary documented (METHODOLOGY "Calibration boundary: saturated markets"; CLAUDE.md anti-pattern #16). v0 engine cannot disambiguate "saturated and served-out" (Brooklyn Heights, capture ~0.83) from "saturated but operators at capacity" (Cresskill, capture ~1.0 but Padel United operates successfully). Both produce composite ≈ 0 in the multiplicative formulation. v2 capacity-data signals (waitlists, court-time scraping, member-cap closures) are required to disambiguate. Phase 0 handling: BUILD anchors with capture_share > 0.85 excluded from BUILD floor derivation (operator-set `SATURATED_CAPTURE_THRESHOLD` v0_provisional). Engine reliability domain: unsaturated candidates (capture < 0.50) scored well; saturated candidates (> 0.85) flagged as calibration boundary, not used for capital decisions until v2.
+- Business climate tier (v0 categorical) adopted (METHODOLOGY "Business climate tier (v0 categorical, not quantitative)"; CLAUDE.md anti-pattern #17). 4-tier framework (FAVORABLE / NEUTRAL / PREMIUM / PROHIBITIVE) covers 50 states + DC + metro overrides (NYC-proper, Chicago-city, Seattle-proper, Austin-metro, Rural-VA-non-NOVA, Rural-PA-non-Philly). Tier is OUTPUT FLAG only — never composite-score input. Engine deliberately does NOT estimate construction costs / taxes / permitting numerically; categorical signal protects against false-precision underwriting from screening data. TIER_3 sub-flag for property-tax-extreme states (currently NJ at 2.08%) carries additional caveat. Refusal commitment: future schema changes wanting quantitative cost fields must be refused and surfaced to operator.

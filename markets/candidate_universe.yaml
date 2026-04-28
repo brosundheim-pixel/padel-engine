@@ -1,43 +1,73 @@
 # Sub-suburb candidates to score. Resolution: zip code or Census tract.
+#
+# v0.3 changes (relative to v0.2):
+#   - Added business_climate_tier per candidate (sourced from
+#     markets/business_climate_tiers.yaml state_defaults + metro_overrides)
+#   - Tier signals output flag only; never enters score computation
+#
+# v0.2 changes (relative to v0):
+#   removed:
+#     - Highland Park 75205   — urban Dallas, not Frisco-adjacent suburb
+#     - Alpharetta 30022      — redundant with anchor racket_social_alpharetta (30005)
+#     - Bellaire 77401        — urban Houston, doesn't fit suburban thesis
+#     - Hunters Creek 77024   — urban Houston enclave
+#   added:
+#     - Greenwich CT 06830    — East Coast wealth corridor
+#     - Wellesley MA 02481    — East Coast wealth corridor, Padel Boston-adjacent
+#     - Atherton CA 94027     — Bay Area peninsula, highest demographic uncertainty
+#     - Palo Alto CA 94301    — Bay Area peninsula
+#   new metro groups:
+#     - northeast_wealth_corridor (Greenwich, Wellesley)
+#     - bay_area_peninsula (Atherton, Palo Alto)
 
-version: 0
+version: 0.3
 
 metros:
   dfw_ntrc_adjacent:
-    description: "DFW suburbs adjacent to NTRC Frisco"
+    description: "DFW suburbs adjacent to NTRC Frisco. Inherit demand validation from operating anchor."
     candidates:
-      - { name: "Southlake", zip: "76092" }
-      - { name: "Westlake", zip: "76262" }
-      - { name: "Colleyville", zip: "76034" }
-      - { name: "Prosper", zip: "75078" }
-      - { name: "Highland Park", zip: "75205" }
+      - { name: "Southlake",     zip: "76092", state: "TX", business_climate_tier: TIER_1_FAVORABLE, notes: "DFW suburb adjacent to NTRC Frisco anchor. Operator-verified affluent enclave per CLAUDE.md Tier 1." }
+      - { name: "Westlake",      zip: "76262", state: "TX", business_climate_tier: TIER_1_FAVORABLE, notes: "Southlake-adjacent. Smaller population — likely high catchment overlap with Southlake's 15-min ring (correlated signal)." }
+      - { name: "Colleyville",   zip: "76034", state: "TX", business_climate_tier: TIER_1_FAVORABLE, notes: "DFW suburb adjacent to NTRC Frisco anchor. Affluent Tarrant County residential." }
+      - { name: "Prosper",       zip: "75078", state: "TX", business_climate_tier: TIER_1_FAVORABLE, notes: "North Frisco-adjacent suburb. Newer development, demographic fit per CLAUDE.md Tier 1." }
 
   nashville_sensa_adjacent:
-    description: "Nashville suburbs adjacent to Sensa Germantown"
+    description: "Nashville suburbs adjacent to Sensa Germantown urban anchor. Inherit demand validation from urban operator."
     candidates:
-      - { name: "Brentwood", zip: "37027" }
-      - { name: "Belle Meade", zip: "37205" }
-      - { name: "Franklin", zip: "37067" }
-      - { name: "Forest Hills", zip: "37215" }
+      - { name: "Brentwood",     zip: "37027", state: "TN", business_climate_tier: TIER_1_FAVORABLE, notes: "Affluent Williamson County suburb. CLAUDE.md flags Wilson Pike / Old Hickory corridor as canonical industrial-pocket example." }
+      - { name: "Belle Meade",   zip: "37205", state: "TN", business_climate_tier: TIER_1_FAVORABLE, notes: "West Nashville old-money enclave. High tennis culture (Belle Meade Country Club)." }
+      - { name: "Franklin",      zip: "37067", state: "TN", business_climate_tier: TIER_1_FAVORABLE, notes: "Williamson County affluent suburb south of Brentwood. Demographic fit." }
+      - { name: "Forest Hills",  zip: "37215", state: "TN", business_climate_tier: TIER_1_FAVORABLE, notes: "Nashville west-side wealth pocket. Demographically overlaps Belle Meade but distinct zip." }
 
   atlanta_affluent:
-    description: "Atlanta affluent suburbs (no urban anchor yet)"
+    description: "Atlanta affluent suburbs without urban padel anchor (Padel Haus West Midtown is urban-only). Higher uncertainty per CLAUDE.md."
     candidates:
-      - { name: "Milton", zip: "30004" }
-      - { name: "Johns Creek", zip: "30097" }
-      - { name: "Alpharetta", zip: "30022" }
+      - { name: "Milton",        zip: "30004", state: "GA", business_climate_tier: TIER_2_NEUTRAL, notes: "Forsyth-adjacent affluent Fulton County suburb. North of Alpharetta-area Racket Social anchor." }
+      - { name: "Johns Creek",   zip: "30097", state: "GA", business_climate_tier: TIER_2_NEUTRAL, notes: "Affluent Fulton County suburb. Demographic fit per CLAUDE.md Tier 2." }
 
   chicago_north_shore:
-    description: "Chicago North Shore (no urban anchor yet)"
+    description: "Chicago North Shore. No urban padel anchor yet — highest first-mover uncertainty among Tier 1/2 metros."
     candidates:
-      - { name: "Winnetka", zip: "60093" }
-      - { name: "Glencoe", zip: "60022" }
-      - { name: "Lake Forest", zip: "60045" }
-      - { name: "Hinsdale", zip: "60521" }
+      - { name: "Winnetka",      zip: "60093", state: "IL", business_climate_tier: TIER_2_NEUTRAL, notes: "Cook County North Shore. Old-money lakefront enclave. Highest demographic profile of the four NS candidates. NOT in Chicago city limits (60601-60660) so IL state default TIER_2 applies." }
+      - { name: "Glencoe",       zip: "60022", state: "IL", business_climate_tier: TIER_2_NEUTRAL, notes: "North Shore lakefront. Smaller population than Winnetka but higher per-capita wealth." }
+      - { name: "Lake Forest",   zip: "60045", state: "IL", business_climate_tier: TIER_2_NEUTRAL, notes: "Lake County North Shore (north of the Cook County set). Larger affluent footprint." }
+      - { name: "Hinsdale",      zip: "60521", state: "IL", business_climate_tier: TIER_2_NEUTRAL, notes: "DuPage County, Chicago west suburbs — NOT technically North Shore (which is north-along-the-lake). Grouped here for convenience but methodologically a distinct corridor." }
 
   houston_affluent:
-    description: "Houston affluent enclaves"
+    description: "Houston affluent enclaves. Original three reduced to one after dropping urban-Houston entries that didn't fit the suburban thesis."
     candidates:
-      - { name: "West University Place", zip: "77005" }
-      - { name: "Bellaire", zip: "77401" }
-      - { name: "Hunters Creek Village", zip: "77024" }
+      - { name: "West University Place", zip: "77005", state: "TX", business_climate_tier: TIER_1_FAVORABLE, notes: "Inner-loop affluent enclave with suburban character. Surviving entry from the removed urban-Houston cluster (Bellaire, Hunters Creek both dropped as urban-not-suburban). TX state default TIER_1 inherited; not in Austin-metro override (787 prefix)." }
+
+  northeast_wealth_corridor:
+    description: "East Coast wealth corridor — old-money commuter belt around NYC/Boston. NEW v0.2."
+    candidates:
+      - { name: "Greenwich",     zip: "06830", state: "CT", business_climate_tier: TIER_3_PREMIUM, notes: "Old-money Connecticut. NYC commuter belt, Fairfield County. High tennis culture (multiple country clubs). No padel within 15km. Near Padel United Cresskill anchor for cross-validation. CT state default TIER_3 — BUILD ranking carries 'pricing-power must hold' caveat." }
+      - { name: "Wellesley",     zip: "02481", state: "MA", business_climate_tier: TIER_3_PREMIUM, notes: "Boston wealth corridor west of the city. Near Padel Boston Dedham anchor for demand validation. Strong tennis culture (Wellesley Country Club). MA state default TIER_3 — BUILD ranking carries 'pricing-power must hold' caveat." }
+
+  bay_area_peninsula:
+    description: "Bay Area peninsula — highest demographic fit but highest economic-feasibility uncertainty. NEW v0.2. Whole-state CA default TIER_4."
+    candidates:
+      - { name: "Atherton",      zip: "94027", state: "CA", business_climate_tier: TIER_4_PROHIBITIVE,
+          notes: "Wealthiest zip in America by some measures. Demographic fit overwhelming; no anchor coverage so calibration uncertainty is highest. CA state default TIER_4_PROHIBITIVE — extreme construction costs and slow permitting (CEQA) likely fail underwriting at $1.2-2M capex target. Output flag: 'BUILD demographically, ECONOMIC_GATE_RISK for underwriting'. Per CLAUDE.md anti-pattern #17: engine does NOT estimate dollars; tier is the categorical signal." }
+      - { name: "Palo Alto",     zip: "94301", state: "CA", business_climate_tier: TIER_4_PROHIBITIVE,
+          notes: "Wealthy peninsula city near Stanford. Established racket-sport culture. No padel anchor coverage. CA state default TIER_4_PROHIBITIVE. Same underwriting risk as Atherton — engine demand signal may say BUILD; underwriting must independently confirm before any capital commitment." }

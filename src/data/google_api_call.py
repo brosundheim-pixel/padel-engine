@@ -36,7 +36,7 @@ def cached_api_call(
     query: Dict[str, Any],
     cost_usd: float,
     fetcher: Callable[[], Any],
-    session_cap_usd: float = 5.00,
+    session_cap_usd: float = 20.00,
     total_cap_usd: float = 50.00,
 ) -> Any:
     """Single entrypoint for any Google API call.

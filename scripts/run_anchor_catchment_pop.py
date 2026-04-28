@@ -1,13 +1,22 @@
-"""Compute 7-min and 15-min catchment population for every anchor.
+"""Compute total + affluent catchment for every anchor at 7-min and 15-min radii.
 
-Reuses already-cached isochrone polygons (data/raw/isochrones/) and tract
-data (gazetteer + per-county ACS pops). No new OSM/Overpass calls; minimal
-new ACS calls only when an isochrone bbox covers a county we haven't
-fetched yet.
+Reuses cached isochrone polygons (data/raw/isochrones/) and tract data
+(gazetteer + per-county ACS demographics). No new OSM/Overpass calls.
+Census ACS calls only for counties not yet bulk-fetched into the new
+demographics cache.
+
+Two aggregations per anchor per radius:
+  - total: every tract whose centroid falls inside the polygon
+  - affluent: same set, filtered by tract-level affluent gate (income +
+    age 25-49 + ownership) per METHODOLOGY.md "Affluent-demand-only catchment"
 
 Outputs:
-  - data/calibration/anchors.csv: adds catchment_pop_7min, catchment_pop_15min
-  - data/outputs/anchor_catchment_pop.md: summary table + ratio analysis
+  - data/calibration/anchors.csv: 4 columns (renames + 2 new)
+      total_catchment_pop_7min  (was catchment_pop_7min)
+      total_catchment_pop_15min (was catchment_pop_15min)
+      affluent_catchment_pop_7min  (new)
+      affluent_catchment_pop_15min (new)
+  - data/outputs/anchor_catchment_pop.md: total + affluent + ratio table
 """
 
 from __future__ import annotations
@@ -21,7 +30,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.geo.catchment_population import compute_catchment_population
+from src.geo.catchment_population import (
+    compute_affluent_catchment_population,
+    compute_catchment_population,
+)
 from src.geo.geocoding import pop_weighted_centroid, zip_to_centroid
 from src.geo.isochrones import get_isochrone
 
@@ -29,7 +41,18 @@ ANCHORS_CSV = REPO_ROOT / "data" / "calibration" / "anchors.csv"
 OUTPUT_MD = REPO_ROOT / "data" / "outputs" / "anchor_catchment_pop.md"
 
 DRIVE_RADII = [7, 15]
-NEW_COLUMNS = ["catchment_pop_7min", "catchment_pop_15min"]
+
+# Column rename map: old → new
+RENAMED_COLUMNS = {
+    "catchment_pop_7min": "total_catchment_pop_7min",
+    "catchment_pop_15min": "total_catchment_pop_15min",
+}
+NEW_COLUMNS = [
+    "total_catchment_pop_7min",
+    "total_catchment_pop_15min",
+    "affluent_catchment_pop_7min",
+    "affluent_catchment_pop_15min",
+]
 
 
 def origin_for(zip_code: str) -> Optional[Tuple[float, float]]:
@@ -40,25 +63,45 @@ def origin_for(zip_code: str) -> Optional[Tuple[float, float]]:
     return zip_to_centroid(zip_code)
 
 
+def migrate_columns(rows: List[Dict[str, str]], fieldnames: List[str]) -> List[str]:
+    """Rename old column names in each row and return the new schema list.
+
+    Old `catchment_pop_*` values are copied to `total_catchment_pop_*` and
+    the old keys removed. The 2 new affluent columns are appended; values
+    are filled in by the main loop.
+    """
+    new_fields: List[str] = []
+    for col in fieldnames:
+        if col in RENAMED_COLUMNS:
+            new_fields.append(RENAMED_COLUMNS[col])
+        else:
+            new_fields.append(col)
+    for col in NEW_COLUMNS:
+        if col not in new_fields:
+            new_fields.append(col)
+
+    for row in rows:
+        for old, new in RENAMED_COLUMNS.items():
+            if old in row:
+                row[new] = row.pop(old)
+        for col in NEW_COLUMNS:
+            row.setdefault(col, "")
+    return new_fields
+
+
 def main() -> int:
     with ANCHORS_CSV.open() as f:
         reader = csv.DictReader(f)
         fieldnames = list(reader.fieldnames or [])
         rows = list(reader)
 
-    out_fields = list(fieldnames)
-    for col in NEW_COLUMNS:
-        if col not in out_fields:
-            out_fields.append(col)
-
+    out_fields = migrate_columns(rows, fieldnames)
     summary: List[Dict[str, str]] = []
 
     for row in rows:
         zip_code = row["zip"].strip()
         location_id = row["location_id"].strip()
         label = row["ground_truth_label"].strip()
-        zip_pop_str = row.get("total_population", "").strip()
-        zip_pop = int(zip_pop_str) if zip_pop_str else 0
 
         print(f"\n=== {location_id} (zip {zip_code}, {label}) ===")
 
@@ -68,25 +111,35 @@ def main() -> int:
             continue
         lat, lng = origin
 
-        catchments: Dict[int, int] = {}
+        totals: Dict[int, int] = {}
+        affluents: Dict[int, int] = {}
         for minutes in DRIVE_RADII:
             polygon = get_isochrone(lat, lng, minutes)
-            pop = compute_catchment_population(polygon)
-            catchments[minutes] = pop
-            print(f"  {minutes}-min catchment population: {pop:,}")
+            total = compute_catchment_population(polygon)
+            affluent = compute_affluent_catchment_population(polygon)
+            totals[minutes] = total
+            affluents[minutes] = affluent
+            ratio = (affluent / total) if total > 0 else 0.0
+            print(
+                f"  {minutes}-min: total={total:,}  affluent={affluent:,}  "
+                f"affluent/total={ratio:.2%}"
+            )
 
-        row["catchment_pop_7min"] = str(catchments[7])
-        row["catchment_pop_15min"] = str(catchments[15])
+        row["total_catchment_pop_7min"] = str(totals[7])
+        row["total_catchment_pop_15min"] = str(totals[15])
+        row["affluent_catchment_pop_7min"] = str(affluents[7])
+        row["affluent_catchment_pop_15min"] = str(affluents[15])
 
-        ratio = (catchments[15] / zip_pop) if zip_pop > 0 else 0.0
+        ratio15 = (affluents[15] / totals[15]) if totals[15] > 0 else 0.0
         summary.append({
             "location_id": location_id,
             "zip": zip_code,
             "label": label,
-            "zip_pop": f"{zip_pop:,}",
-            "catchment_7min": f"{catchments[7]:,}",
-            "catchment_15min": f"{catchments[15]:,}",
-            "ratio_15min_over_zip": f"{ratio:.2f}x" if zip_pop > 0 else "n/a",
+            "total_7": f"{totals[7]:,}",
+            "total_15": f"{totals[15]:,}",
+            "affluent_7": f"{affluents[7]:,}",
+            "affluent_15": f"{affluents[15]:,}",
+            "ratio_15": f"{ratio15:.1%}",
         })
 
     with ANCHORS_CSV.open("w", newline="") as f:
@@ -97,24 +150,37 @@ def main() -> int:
 
     OUTPUT_MD.parent.mkdir(parents=True, exist_ok=True)
     md: List[str] = []
-    md.append("# Anchor catchment population\n\n")
+    md.append("# Anchor catchment population — total + affluent\n\n")
     md.append(
-        "Population summed across Census tracts whose centroid (Census 2023 "
-        "Gazetteer internal point) falls inside the anchor's drive-time "
-        "isochrone. Tract pop from ACS 2023 5-year B01003_001E. Isochrone "
-        "origin = pop-weighted ZCTA centroid.\n\n"
+        "**Total catchment** = sum of population across Census tracts whose "
+        "centroid (Census 2023 Gazetteer internal point) falls inside the "
+        "drive-time isochrone polygon.\n\n"
+    )
+    md.append(
+        "**Affluent catchment** = same set, filtered by tract-level affluent "
+        "gate (median household income ≥ $100K AND pct_age_25_49 ≥ 25% AND "
+        "ownership rate ≥ 50%). Per METHODOLOGY.md \"Affluent-demand-only "
+        "catchment\" — this is the v0-canonical demand signal feeding "
+        "scoring; total is reported only for visibility.\n\n"
+    )
+    md.append(
+        "**affluent/total ratio** = how much of the total catchment passes "
+        "the tract-level affluent filter. High ratio = surroundings are "
+        "uniformly affluent. Low ratio = isochrone sweeps through mixed-"
+        "density geography.\n\n"
     )
     md.append("## Per-anchor table\n\n")
     md.append(
-        "| location_id | zip | label | zip pop | 7-min catchment | "
-        "15-min catchment | 15-min / zip pop |\n"
-        "|---|---|---|---|---|---|---|\n"
+        "| location_id | zip | label | total 7-min | total 15-min | "
+        "affluent 7-min | affluent 15-min | affluent/total 15-min |\n"
+        "|---|---|---|---|---|---|---|---|\n"
     )
     for r in summary:
         md.append(
             f"| {r['location_id']} | {r['zip']} | {r['label']} | "
-            f"{r['zip_pop']} | {r['catchment_7min']} | "
-            f"{r['catchment_15min']} | {r['ratio_15min_over_zip']} |\n"
+            f"{r['total_7']} | {r['total_15']} | "
+            f"{r['affluent_7']} | {r['affluent_15']} | "
+            f"{r['ratio_15']} |\n"
         )
 
     OUTPUT_MD.write_text("".join(md))

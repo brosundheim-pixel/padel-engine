@@ -98,7 +98,7 @@ def project_total() -> float:
 
 def assert_budget_ok(
     next_call_cost_usd: float,
-    session_cap_usd: float = 5.00,
+    session_cap_usd: float = 20.00,
     total_cap_usd: float = 50.00,
 ) -> None:
     """Raise BudgetExceededError if the next call would push past either cap.

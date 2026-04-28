@@ -197,7 +197,21 @@ def _nearby_search(
 
 
 def _text_search(text_query: str, lat: float, lng: float, radius_m: int) -> List[Dict[str, Any]]:
-    """Search Text — paginated up to MAX_PAGES, each page a separate billed call."""
+    """Search Text — paginated up to MAX_PAGES, each page a separate billed call.
+
+    Google Places API (New) Text Search `locationRestriction` only accepts
+    a `rectangle` shape; it rejects `circle` with 400 INVALID_ARGUMENT.
+    `locationBias.circle` is the only circular-shape API for Text Search,
+    but it's a SOFT bias (Google relaxes geographically when the local
+    radius lacks matches → up to ~70% bleed empirically).
+
+    Solution: send `locationBias.circle` so Google ranks by proximity, then
+    client-side haversine-filter the cached results to drop anything beyond
+    radius_m. Equivalent effect to locationRestriction.circle if Google
+    supported it. The cache stores raw Google responses (including bleed
+    places); the filter is applied AFTER cache read so bleed audits still
+    see ground truth while scoring code sees filtered results.
+    """
     api_key = _get_api_key()
     base_query = {
         "textQuery": text_query,
@@ -209,9 +223,15 @@ def _text_search(text_query: str, lat: float, lng: float, radius_m: int) -> List
         },
         "maxResultCount": 20,
     }
-    return _paginate(
+    raw_results = _paginate(
         GOOGLE_PLACES_TEXT, TEXT_URL, api_key, base_query, FIELD_MASK_TEXT
     )
+    # Drop out-of-radius bleed before returning to caller.
+    filtered: List[Dict[str, Any]] = []
+    for place in raw_results:
+        if _haversine_m(lat, lng, place["lat"], place["lng"]) <= radius_m:
+            filtered.append(place)
+    return filtered
 
 
 def _paginate(

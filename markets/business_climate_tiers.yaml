@@ -1,0 +1,192 @@
+# v0 categorical business-climate tiers. Used as output FLAG in candidate
+# scoring; NEVER as score-input. See METHODOLOGY.md "Business climate tier
+# (v0 categorical, not quantitative)" and CLAUDE.md anti-pattern #17.
+#
+# Engine deliberately does NOT estimate construction costs, property taxes,
+# or permitting timelines numerically. Categorical tiers only. If a future
+# code path wants to add quantitative cost fields ($/sqft, $/year property
+# tax), refuse and surface to operator.
+
+version: 0
+
+tiers:
+  TIER_1_FAVORABLE:
+    description: "0%-low income tax + low-moderate property tax + fast permitting + low construction. Strong unit economics. BUILD candidates score without caveat."
+  TIER_2_NEUTRAL:
+    description: "Moderate tax + moderate permitting. No structural blocker, no advantage. BUILD candidates score without caveat."
+  TIER_3_PREMIUM:
+    description: "High tax + slow permitting. Premium pricing power assumed compensates. BUILD candidates carry 'BUILD with assumed pricing power' caveat."
+  TIER_4_PROHIBITIVE:
+    description: "Construction + permitting kill unit economics at $1.2-2M capex target. BUILD candidates carry 'ECONOMIC_GATE_RISK for underwriting' flag — likely fail underwriting even when demographics qualify."
+
+# State-level defaults. Apply unless overridden by metro_overrides below.
+# Sources: state income tax rates, Tax Foundation property tax effective rates,
+# qualitative permitting + construction-cost benchmarks. v0 — refine as more
+# market data accumulates.
+state_defaults:
+  AL: TIER_2
+  AK: TIER_3
+  AZ: TIER_1
+  AR: TIER_2
+  CA: TIER_4
+  CO: TIER_2
+  CT: TIER_3
+  DE: TIER_2
+  FL: TIER_1
+  GA: TIER_2
+  HI: TIER_3
+  ID: TIER_2
+  IL: TIER_2
+  IN: TIER_2
+  IA: TIER_2
+  KS: TIER_2
+  KY: TIER_2
+  LA: TIER_2
+  ME: TIER_3
+  MD: TIER_3
+  MA: TIER_3
+  MI: TIER_2
+  MN: TIER_3
+  MS: TIER_2
+  MO: TIER_2
+  MT: TIER_2
+  NE: TIER_2
+  NV: TIER_1
+  NH: TIER_3
+  NJ: TIER_3
+  NM: TIER_2
+  NY: TIER_3
+  NC: TIER_2
+  ND: TIER_2
+  OH: TIER_2
+  OK: TIER_2
+  OR: TIER_3
+  PA: TIER_3
+  RI: TIER_3
+  SC: TIER_2
+  SD: TIER_1
+  TN: TIER_1
+  TX: TIER_1
+  UT: TIER_2
+  VT: TIER_3
+  VA: TIER_3
+  WA: TIER_3
+  WV: TIER_2
+  WI: TIER_3
+  WY: TIER_1
+
+# Federal district handled separately
+district_defaults:
+  DC: TIER_4
+
+# TIER_3 sub-flag: states with effective property tax >2% carry an
+# ADDITIONAL flag in output: "TIER_3 with extreme property tax burden —
+# premium pricing must hold AND property tax is highest tier in country."
+# v0: only NJ at 2.08% effective. Update when refresh data places others
+# above 2%.
+extreme_property_tax_states:
+  - NJ
+
+# Metro-level overrides. Apply AFTER state_defaults. First matching prefix
+# wins. Zip-prefix match: candidate zip starts with any string in
+# zip_prefixes. v0: schema documented for current and near-term overrides;
+# extend as candidate universe grows.
+metro_overrides:
+  - metro: NYC-proper
+    state: NY
+    zip_prefixes: ["100", "101", "102", "103", "104", "112", "113", "114", "116"]
+    tier: TIER_4
+    rationale: "NY state 10.9% income + NYC city 3.876% (~14.8% combined) + extreme construction + slow permitting. Override of NY default TIER_3 for the 5 boroughs."
+
+  - metro: Chicago-city
+    state: IL
+    zip_prefixes: ["606"]
+    tier: TIER_3
+    rationale: "Chicago city tax + high property + slow permitting. North Shore suburbs (Cook outside city / Lake County) keep IL default TIER_2."
+
+  - metro: Seattle-proper
+    state: WA
+    zip_prefixes: ["981"]
+    tier: TIER_4
+    rationale: "Extreme construction + permitting. WA default TIER_3 holds for eastside premium suburbs (Bellevue / Mercer Island in 980 prefix)."
+
+  - metro: Austin-metro
+    state: TX
+    zip_prefixes: ["787"]
+    tier: TIER_2
+    rationale: "Austin metro premium construction + relatively slow permitting (vs rest of TX). State default TIER_1 stepped down."
+
+  - metro: Rural-VA-non-NOVA
+    state: VA
+    zip_prefixes:
+      - "224"
+      - "225"
+      - "226"
+      - "227"
+      - "228"
+      - "229"
+      - "230"
+      - "231"
+      - "232"
+      - "233"
+      - "234"
+      - "235"
+      - "236"
+      - "237"
+      - "238"
+      - "239"
+      - "240"
+      - "241"
+      - "242"
+      - "243"
+      - "244"
+      - "245"
+      - "246"
+    tier: TIER_2
+    rationale: "Virginia outside DC corridor (NOVA = 220-223). Moderate tax, faster permitting, lower construction. State default TIER_3 stepped down for non-NOVA zips."
+
+  - metro: Rural-PA-non-Philly
+    state: PA
+    zip_prefixes:
+      - "150"
+      - "151"
+      - "152"
+      - "153"
+      - "154"
+      - "155"
+      - "156"
+      - "157"
+      - "158"
+      - "159"
+      - "160"
+      - "161"
+      - "162"
+      - "163"
+      - "164"
+      - "165"
+      - "166"
+      - "167"
+      - "168"
+      - "169"
+      - "170"
+      - "171"
+      - "172"
+      - "173"
+      - "174"
+      - "175"
+      - "176"
+      - "177"
+      - "178"
+      - "179"
+      - "180"
+      - "181"
+      - "182"
+      - "183"
+      - "184"
+      - "185"
+      - "186"
+      - "187"
+      - "188"
+      - "189"
+    tier: TIER_2
+    rationale: "Pennsylvania outside Philadelphia corridor (Main Line + Bucks/Chester = 190-196). Lower local taxes, faster permitting, lower construction. State default TIER_3 stepped down for non-Philly zips."
