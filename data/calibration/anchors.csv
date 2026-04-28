@@ -1,3 +1,12 @@
-location_id,name,zip,metro,ground_truth_label,label_source,notes
-ntrc_frisco,NTRC Frisco,75033,DFW,BUILD,operating_club_verified,"$159/mo padel $209/mo all-sports pickleball waitlisted"
-sensa_germantown,Sensa Padel Nashville,37208,Nashville,BUILD,operating_club_verified,"Urban not suburban. Strategy excludes urban locations."
+location_id,name,zip,metro,ground_truth_label,label_source,notes,median_household_income,median_home_value,median_age,total_population,homeownership_rate,pct_age_25_49,catchment_pop_7min,catchment_pop_15min
+ntrc_frisco,NTRC Frisco,75033,DFW,BUILD,operating_club_verified,$159/mo padel $209/mo all-sports pickleball waitlisted,171640,606500,36.7,50292,0.7189,0.3636,168871,891607
+ntrc_frisco_75034,NTRC Frisco,75034,DFW,BUILD,operating_club_verified,$159/mo padel $209/mo all-sports pickleball waitlisted,107945,679500,36.1,51059,0.4016,0.4196,208151,1272386
+ntrc_frisco_75035,NTRC Frisco,75035,DFW,BUILD,operating_club_verified,$159/mo padel $209/mo all-sports pickleball waitlisted,161030,562300,38.1,86135,0.7589,0.3962,193518,922750
+sensa_germantown,Sensa Padel Nashville,37208,Nashville,BUILD_DESTINATION_URBAN,operating_club_verified,Demographics reflect Germantown gentrifying-urban not affluent customer origin. Requires isochrone-based catchment scoring to evaluate properly.,62682,417200,30.7,20204,0.3311,0.4186,154279,558744
+roanoke_al,Roanoke AL,36272,Rural_Alabama,PASS,operator_judgment,"Rural town, fails catchment hard gate",52726,123200,43.8,12996,0.7714,0.3216,3775,29312
+miami_beach,Miami Beach FL,33139,South_Florida,PASS,operator_judgment,"Saturated urban, fails supply gap",63368,480500,42.1,34406,0.3388,0.4546,48568,652189
+winder_ga,Winder GA,30680,Atlanta_Outer,PASS,operator_judgment,"Unaffluent Sunbelt suburb, fails Tier 1 demographic gate",77038,244700,37.8,47433,0.7859,0.3694,43761,177085
+brooklyn_heights,Brooklyn Heights NY,11201,NYC,PASS,operator_judgment,"Affluent but adjacent to multiple operating padel facilities, fails supply gap",169285,1131700,35.2,69251,0.3553,0.4945,983355,4696986
+padel_united_cresskill,Padel United Sports Club,07626,NYC_Suburbs,BUILD,operating_club_verified,7 indoor courts + wellness stack (saltwater pool sauna steam hot/cold therapy). $290/mo individual $475/mo family. >200 members reported. Bergen County affluent NYC suburb. Source: padelunitedsportsclub.com,173293,764800,45.0,9101,0.8065,0.2732,93113,469836
+padel_boston_dedham,Padel Boston,02026,Boston_Suburbs,BUILD,operating_club_verified,3 indoor padel courts 26ft ceilings off I-95. $220/mo individual $360/mo family. First dedicated padel club in MA. Dedham southwest Boston suburb. Source: playpadelboston.com/dedham,124375,630400,43.5,25109,0.7268,0.3169,88515,604503
+racket_social_alpharetta,Racket Social Club Alpharetta,30005,Atlanta_Suburbs,BUILD_OUTDOOR_VARIANT,operating_club_verified,4 outdoor full-panoramic padel courts. Acquired by Racquet 360 in 2025. Membership with priority booking + discounted court fees. OUTDOOR FORMAT — distinguishes from indoor Tony's Racket thesis. Source: racketsocialclub.us/alpharetta,170951,587400,40.2,41471,0.7155,0.3642,69355,437145

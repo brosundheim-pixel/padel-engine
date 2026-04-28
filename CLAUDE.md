@@ -62,17 +62,32 @@ Examples:
 - Brentwood TN: Wilson Pike / Old Hickory corridor (vs. Maryland Farms retail at $25-35/sqft)
 - Frisco TX: eastern edge near rail corridor (vs. prime retail strips)
 
-This is the actual real-estate target — NOT exurbs 15+ minutes away. Boutique fitness retention data shows steep drive-time elasticity past 7-12 minutes; member churn doubles or triples once drive exceeds 12 minutes.
+### Drive-time tolerance: padel ≠ boutique fitness
+
+Boutique fitness retention data shows steep drive-time elasticity past 7-12 minutes; member churn doubles or triples beyond 12 minutes. **Padel does not behave the same way.** Scheduled social play format (members coordinate doubles times in advance) and scarcity of alternatives (no nearby substitute facility) raise tolerated drive times materially above boutique-fitness norms. Operator read: 15-min drive is acceptable when rent savings substantially offset churn cost; 7-min drive is preferred when comparable rent is available.
+
+### Dual-catchment scoring (canonical)
+
+The engine scores every candidate at **both** a 7-min and 15-min drive-time isochrone. The two radii correspond to two distinct site strategies:
+
+- **7-min radius — cheap-pocket strategy.** Light-industrial flex pocket inside the affluent suburb, 5-7 min from member homes. Rent savings of 30-40% vs. prime suburban retail. Lowest churn risk.
+- **15-min radius — tertiary-suburb strategy.** Cheap unincorporated industrial / exurban flex 15 min from member homes. Larger rent savings, higher churn risk, viable when rent gap is large enough to outweigh retention cost.
+
+Both demand scores are reported per candidate. Operator picks the strategy per-site based on available real estate. Do NOT collapse to a single radius; do NOT pick one as canonical.
 
 ### Engine implications
 
 1. Demand scoring at zip-code or Census-tract resolution within target suburbs
-2. Phase 2 capability: industrial-flex pocket identifier within BUILD-classified geographies (5-7 min drive from demographic centroid)
-3. The combination of "high-demand sub-suburb + cheap-rent industrial pocket within 5-7 min" is the actual target unit — not "suburb" or "exurb"
+2. Every candidate receives a 7-min score AND a 15-min score
+3. Output ranks both; operator selects strategy per candidate
+4. Phase 2 capability: industrial-flex pocket identifier within BUILD-classified geographies, evaluated separately at 5-7 min and 15-min radii
+5. The target unit is "high-demand sub-suburb + cheap-rent industrial pocket" — radius depends on what real estate is available
 
 ---
 
 ## Calibration approach
+
+**Confidence level on current calibration:** see `METHODOLOGY.md` section "Calibration limitations and confidence level" — that section is the canonical statement of where the engine actually stands on anchor coverage and threshold-derivation rigor. Read it before making claims about engine maturity, especially in any capital-decision context.
 
 ### Why anchors matter more than weights
 
@@ -189,7 +204,7 @@ Process:
 
 **Two true hard gates** (below these, the market cannot work regardless of other strengths):
 
-1. **Population in 15-min drive isochrone ≥ 50K** — below this, member math doesn't support 4 padel + 2 pickleball
+1. **Population in 15-min drive isochrone ≥ 100K** — below this, member math doesn't support 4 padel + 2 pickleball even on the wider catchment radius. Derived from Phase 0 anchor data (see METHODOLOGY "Catchment population hard gate — derivation from anchor data"): Roanoke AL PASS catchment 29K cleanly fails; NTRC suburban floor 892K, Sensa urban floor 559K, so 100K leaves ~5x margin for affluent suburbs not yet anchored. Gate is applied to the 15-min isochrone (the wider of the two) so candidates that fail the 7-min radius but clear the 15-min radius still survive.
 2. **Median home value ≥ $500K (zip-code level)** — below this, the demographic willing to pay $200/mo membership doesn't exist in density
 
 Everything else feeds the composite score. A sub-suburb can be weak on one signal and strong on another and still rank high.
@@ -227,6 +242,33 @@ If automated supply ever becomes worth building (50+ candidates per run, frequen
 
 ---
 
+## Supply scoring: demand-cluster-overlap model
+
+This section is about HOW supply data enters the scoring math, not how it's collected (the section above covers collection). Both layers matter; they're separate decisions.
+
+The wrong question: "how many padel facilities exist within X miles of the candidate?" Facility count is a coarse proxy that ignores who those competitors actually serve. Two facilities equidistant from a candidate can have wildly different supply impact based on whether their catchments overlap with the candidate's affluent demographic.
+
+The right question: "how much of the candidate's affluent demand is already captured by existing competitors, and how much remains uncaptured?"
+
+### Computation (v0 canonical — must be implemented from the first scoring run)
+
+1. Compute candidate's 15-min demand isochrone (already built — `src/geo/isochrones.py`).
+2. For each competitor padel facility within 30-min drive of candidate:
+   - Compute competitor's 15-min catchment isochrone (same isochrone tooling, different origin).
+   - Polygon-intersect candidate catchment with each competitor catchment.
+   - Sum the **affluent-criteria-meeting population** (see anti-pattern #14) inside the intersection regions.
+   - Dedupe overlapping competitors so a member counted as captured by competitor A is not double-counted by competitor B.
+3. **Uncaptured affluent demand** = (candidate affluent catchment) − (sum of captured affluent population across all overlapping competitor catchments).
+4. The uncaptured-affluent-demand value — NOT facility count — is the supply-gap signal that feeds composite scoring.
+
+### Why this matters empirically
+
+NTRC adjacency illustrates: facility count says "5 padel facilities exist in greater DFW within 15km of the candidate, supply is saturated." The overlap math says "of NTRC's affluent catchment of ~470K people, only ~X are inside any competitor's 15-min ring; the remaining ~Y are uncaptured affluent demand." The two answers can point in opposite directions.
+
+This is the canonical v0 supply model. Facility count is explicitly an anti-pattern (#13).
+
+---
+
 ## Critical anti-patterns
 
 These have been considered and discarded. Do not reintroduce without explicit operator approval.
@@ -240,9 +282,11 @@ These have been considered and discarded. Do not reintroduce without explicit op
 7. **Aggressive input thresholds.** Score wide, filter on output ranking.
 8. **Single-anchor calibration.** Use multi-anchor regression suite.
 9. **Auto-classifying South Florida as uncontested.** Already saturated with sophisticated operators (Reservoir, Pura, Padel Haus, etc.). Down-weight or exclude by default; operator override only.
-10. **Exurb sites 15+ minutes from affluent suburbs.** Member retention falls off cliff past 12-min drive. Target light-industrial pockets WITHIN suburbs at 5-7 min from demographic centroid.
+10. **Single-radius catchment scoring.** Padel drive tolerance differs from boutique fitness; tertiary-suburb / 15-min sites are viable when rent savings outweigh churn cost. Score every candidate at BOTH 7-min and 15-min radii; let the operator pick the strategy per candidate. Do not collapse to one radius.
 11. **California suburbs without economics gate.** Atherton/Los Altos/Woodside have demand but real estate costs break unit economics. Score for completeness; expect economic gate to filter.
 12. **Threshold-setting before anchor calibration.** Derive thresholds from anchor data, not from intuition.
+13. **Treating supply as facility-count-within-radius.** Real supply pressure depends on competitor catchment overlap with the candidate's demand cluster. Engine must compute polygon intersection between competitor isochrones and candidate demand isochrone, then aggregate population in the uncaptured residual. See "Supply scoring: demand-cluster-overlap model" below.
+14. **Treating total catchment population as demand signal.** Total catchment overstates addressable demand in mixed-density zips (e.g., Brooklyn Heights's 4.7M total catchment massively overstates the affluent target). Engine must compute affluent-criteria-meeting population (income above threshold + age 25-50 + homeowner-rate gate) within the isochrone, not raw total population. See METHODOLOGY "Affluent-demand-only catchment" for the v0-canonical math.
 
 ---
 
@@ -275,7 +319,7 @@ These have been considered and discarded. Do not reintroduce without explicit op
 
 - **Census ACS** (American Community Survey) — demographics, income, home value, age, homeownership at zip-code or tract level. Free with API key. 5-year estimates.
 - **Google Maps Places API** — tennis clubs, fitness studios, golf clubs within isochrones. Paid, rate-limited. Cache aggressively.
-- **Google Maps Routes API** — drive-time isochrones (15-min for catchment, 30-min for supply context if used). Paid. Cache by origin lat/lng + time-of-day bucket.
+- **Google Maps Routes API** — drive-time isochrones. 7-min and 15-min for demand catchment (dual-radius scoring), 30-min for supply context if used. Paid. Cache by origin lat/lng + radius + time-of-day bucket.
 - **Playtomic** — padel facility supply (manual reference, not automated scrape).
 - **Google Trends** — metro-level padel interest (gate only).
 
@@ -356,7 +400,7 @@ In rough order. Update this list as work completes.
 
 1. **Pull demographic data on calibration anchors.** NTRC zip codes (75033, 75034, 75035) and Sensa Germantown (37208), plus 2-3 obvious-PASS comparisons. Output: populated `data/calibration/anchors.csv` with real Census ACS numbers. **Until this is done, every threshold is a guess.**
 2. **Derive hard gate thresholds from anchor data.** Set population minimum and home value minimum at or slightly below the lowest BUILD anchor. Document in `METHODOLOGY.md`.
-3. **Drive-time isochrone correctness fix.** Replace any radius-based or straight-line lookup with 15-min drive-time isochrones from Google Routes API.
+3. **Dual-radius drive-time isochrones.** Replace any radius-based or straight-line lookup with drive-time isochrones from Google Routes API. Compute BOTH 7-min and 15-min isochrones per candidate; cache both. Demand signals that aggregate over a catchment (population, tennis density, fitness density, etc.) must be reported at both radii.
 
 ### Phase 1 — first real run
 

@@ -1,11 +1,26 @@
-# Classification thresholds. PLACEHOLDER values.
-# Derive from anchor calibration before relying on output.
+# v0 thresholds — set from limited anchor data:
+# - 2 distinct BUILD operators (NTRC Frisco, Sensa Nashville Germantown) in 2 metros
+# - 4 PASS anchors covering 4 distinct failure modes (rural, demographic, supply, supply)
+# - No anchors from Atlanta, Chicago, Houston, NYC suburbs, California, East Coast wealth corridor
+# - Values are conservative-low — won't false-negative current anchors but may need revision
+#   when additional anchors added, especially from East Coast and California markets
+# - Sufficient to begin scoring runs; NOT yet rigorous enough to drive standalone capital decisions
+# Phase 0 anchor expansion is the next priority before threshold values can be considered locked.
+#
+# Per-gate notes:
+# - population_15min_isochrone_min: 100000 — anchor-derived from Phase 0 catchment data
+#   (see METHODOLOGY "Catchment population hard gate — derivation from anchor data").
+# - median_home_value_min: 500000 — provisional, deferred from anchor-derivation pending
+#   Cresskill and Dedham demographics. Sensa Germantown $417K is below this gate but is
+#   BUILD_DESTINATION_URBAN; gate applies to candidate scoring not anchor calibration so
+#   this doesn't auto-exclude Sensa from anchors.
+# - build/pass classification thresholds: still v0 null; pending composite scoring.
 
 version: 0
-derived_from_anchors: false
+derived_from_anchors: v0_limited  # see top comment block
 
 hard_gates:
-  population_15min_isochrone_min: 50000
+  population_15min_isochrone_min: 100000
   median_home_value_min: 500000
 
 classification:

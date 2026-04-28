@@ -38,3 +38,5 @@ data/outputs/*.json
 # Local notebooks scratch
 notebooks/scratch_*.ipynb
 .ipynb_checkpoints/
+cache/
+.claude/
